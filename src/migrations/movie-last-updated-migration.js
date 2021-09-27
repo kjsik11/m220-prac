@@ -1,7 +1,7 @@
 const MongoClient = require("mongodb").MongoClient
 const ObjectId = require("mongodb").ObjectId
 const MongoError = require("mongodb").MongoError
-require("dotenv").config()
+require("dotenv").config({ path: "../../.env" })
 
 /**
  * Ticket: Migration
@@ -20,7 +20,9 @@ require("dotenv").config()
 ;(async () => {
   try {
     const host = process.env.MFLIX_DB_URI
+
     const client = await MongoClient.connect(host, { useNewUrlParser: true })
+
     const mflix = client.db(process.env.MFLIX_NS)
 
     // TODO: Create the proper predicate and projection
@@ -28,12 +30,19 @@ require("dotenv").config()
     // check that its type is a string
     // a projection is not required, but may help reduce the amount of data sent
     // over the wire!
-    const predicate = { somefield: { $someOperator: true } }
-    const projection = {}
+    const predicate = {
+      $and: [
+        { lastupdated: { $exists: 1 } },
+        { lastupdated: { $type: "string" } },
+      ],
+    }
+
+    const projection = { projection: { lastupdated: 1 } }
     const cursor = await mflix
       .collection("movies")
       .find(predicate, projection)
       .toArray()
+
     const moviesToMigrate = cursor.map(({ _id, lastupdated }) => ({
       updateOne: {
         filter: { _id: ObjectId(_id) },
@@ -46,8 +55,12 @@ require("dotenv").config()
       "\x1b[32m",
       `Found ${moviesToMigrate.length} documents to update`,
     )
-    // TODO: Complete the BulkWrite statement below
-    const { modifiedCount } = await "some bulk operation"
+    const { modifiedCount } = await mflix
+      .collection("movies")
+      .bulkWrite(moviesToMigrate, {
+        ordered: false,
+        w: "majority",
+      })
 
     console.log("\x1b[32m", `${modifiedCount} documents updated`)
     client.close()
